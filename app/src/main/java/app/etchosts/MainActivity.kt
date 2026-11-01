@@ -17,6 +17,7 @@ import android.widget.RadioGroup
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
+import io.github.sudiptadeb.amarit.Amarit
 
 class MainActivity : Activity() {
     private val reqVpn = 1
@@ -43,6 +44,7 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        Amarit.start(this) // update prompts, configured by the repository's amarit.json
         val root = findViewById<android.view.View>(R.id.root)
         root.setOnApplyWindowInsetsListener { v, insets -> // targetSdk 35 is edge-to-edge
             val pad = (16 * resources.displayMetrics.density).toInt()

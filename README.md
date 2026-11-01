@@ -66,6 +66,13 @@ normally. On some Android versions the system then shows its own small
 "running in the background" entry instead; that one cannot be removed by an
 app.
 
+Updates: the app checks for new builds about once an hour and when opened
+(the [amarit](https://github.com/sudiptadeb/amarit) Android library, reading
+the `releases.json` manifest CI publishes), and offers them with an Install /
+Later / Skip dialog. Android asks you to allow installs from this app the
+first time. It follows the stable `v*` releases; nothing installs without
+your tap.
+
 Matching rules:
 
 - Names are matched case-insensitively and exactly. `*.example.test` matches
@@ -128,8 +135,12 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # or set ANDROID_H
 ```
 
 The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. CI builds every
-push; a push to `main` replaces the rolling `latest` pre-release with its APK,
-and each `v*` tag gets its own GitHub Release. CI builds `assembleRelease`
+push; a push to `main` replaces the rolling `latest` pre-release with its APK
+(versionName gets a `+g<sha>` suffix), and each `v*` tag gets its own GitHub
+Release (the tag must match `versionName`, so bump `versionCode` and
+`versionName` first). Both runs rewrite `releases.json` on the `latest`
+release with the `amarit release` tool, from the root `amarit.json`; that
+file is also copied into the APK's assets at build time. CI builds `assembleRelease`
 signed with a stable key from repository secrets (`ETCHOSTS_KEYSTORE_B64`,
 `ETCHOSTS_KEYSTORE_PASSWORD`, `ETCHOSTS_KEY_ALIAS`, `ETCHOSTS_KEY_PASSWORD`);
 without those variables a release build falls back to the debug key.

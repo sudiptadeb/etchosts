@@ -1,0 +1,10 @@
+{
+  "project": "etchosts",
+  "releases": "https://github.com/sudiptadeb/etchosts/releases/download/latest/releases.json",
+  "auto_update": true,
+  "release": {
+    "targets": ["android"],
+    "asset": "etchosts-v{version}.apk",
+    "url": "https://github.com/sudiptadeb/etchosts/releases/download/v{version}/{asset}"
+  }
+}

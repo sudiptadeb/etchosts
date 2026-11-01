@@ -12,7 +12,8 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 3
-        versionName = "0.2.1"
+        // CI appends +g<sha7> on main pushes (rolling "latest" channel), nothing on tags.
+        versionName = "0.2.1" + ((project.findProperty("amaritVersionSuffix") as String?) ?: "")
     }
 
     // Release builds are signed with the stable key when the ETCHOSTS_* variables
@@ -47,8 +48,18 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    sourceSets.getByName("main").assets.srcDir(layout.buildDirectory.dir("generated/amarit/assets"))
 }
 
+// amarit.json is the repository file, carried into the APK so the app hardcodes nothing.
+val amaritProjectFile = tasks.register<Copy>("amaritProjectFile") {
+    from(rootProject.file("amarit.json"))
+    into(layout.buildDirectory.dir("generated/amarit/assets"))
+}
+tasks.named("preBuild") { dependsOn(amaritProjectFile) }
+
 dependencies {
+    implementation("com.github.sudiptadeb:amarit:5ad17cb") // update prompts from releases.json
     testImplementation("junit:junit:4.13.2")
 }

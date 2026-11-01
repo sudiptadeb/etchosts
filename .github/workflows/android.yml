@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# A main push and a tag push both rewrite the one releases.json; run them one at a time.
+concurrency:
+  group: releases-json
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -33,6 +38,32 @@ jobs:
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/etchosts-release.jks"
           echo "ETCHOSTS_KEYSTORE=$RUNNER_TEMP/etchosts-release.jks" >> "$GITHUB_ENV"
 
+      - uses: actions/setup-go@v6
+        if: github.event_name == 'push'
+        with:
+          go-version: stable
+
+      - name: Install the amarit release tool
+        if: github.event_name == 'push'
+        run: go install github.com/sudiptadeb/amarit/cmd/amarit@5ad17cb
+
+      # main pushes are the rolling "latest" channel: versionName gets +g<sha7> so a
+      # phone on that channel sees a new string on the same versionCode. Tags are
+      # the stable channel and must match versionName exactly.
+      - name: Decide version and channel
+        if: github.event_name == 'push'
+        id: rel
+        run: |
+          NAME=$(sed -n 's/^ *versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts)
+          CODE=$(sed -n 's/^ *versionCode = \([0-9]*\).*/\1/p' app/build.gradle.kts)
+          if [ "$GITHUB_REF" = refs/heads/main ]; then
+            SUFFIX="+g${GITHUB_SHA::7}"; VERSION="$NAME$SUFFIX"; CHANNEL=latest; TAG=latest; ASSET=etchosts-latest.apk
+          else
+            SUFFIX=""; VERSION="${GITHUB_REF_NAME#v}"; CHANNEL=stable; TAG="$GITHUB_REF_NAME"; ASSET="etchosts-$GITHUB_REF_NAME.apk"
+            [ "$VERSION" = "$NAME" ] || { echo "tag $GITHUB_REF_NAME but versionName is $NAME"; exit 1; }
+          fi
+          printf 'suffix=%s\nversion=%s\ncode=%s\nchannel=%s\ntag=%s\nasset=%s\n' "$SUFFIX" "$VERSION" "$CODE" "$CHANNEL" "$TAG" "$ASSET" >> "$GITHUB_OUTPUT"
+
       # ubuntu runners ship the Android SDK (ANDROID_HOME); AGP fetches any
       # missing platform or build-tools itself.
       - name: Test and build
@@ -40,7 +71,22 @@ jobs:
           ETCHOSTS_KEYSTORE_PASSWORD: ${{ secrets.ETCHOSTS_KEYSTORE_PASSWORD }}
           ETCHOSTS_KEY_ALIAS: ${{ secrets.ETCHOSTS_KEY_ALIAS }}
           ETCHOSTS_KEY_PASSWORD: ${{ secrets.ETCHOSTS_KEY_PASSWORD }}
-        run: ./gradlew testDebugUnitTest assembleRelease --no-daemon
+        run: ./gradlew testDebugUnitTest assembleRelease --no-daemon -PamaritVersionSuffix="${{ steps.rel.outputs.suffix }}"
+
+      # releases.json is the one update manifest both channels share; it lives on
+      # the rolling release. Merge this run into the existing one.
+      - name: Write the manifest
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/${{ steps.rel.outputs.asset }}"
+          gh release download latest --pattern releases.json --dir dist || true
+          amarit release -version "${{ steps.rel.outputs.version }}" -version-code "${{ steps.rel.outputs.code }}" \
+            -channel "${{ steps.rel.outputs.channel }}" -dist dist -out dist/releases.json -prune \
+            -asset "${{ steps.rel.outputs.asset }}" \
+            -url "https://github.com/sudiptadeb/etchosts/releases/download/${{ steps.rel.outputs.tag }}/{asset}"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -54,7 +100,6 @@ jobs:
         run: |
           git tag -f latest
           git push -f origin latest
-          cp app/build/outputs/apk/release/app-release.apk etchosts-latest.apk
 
       - uses: softprops/action-gh-release@v2
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -66,13 +111,20 @@ jobs:
             APK built from main at ${{ github.sha }}.
 
             ${{ github.event.head_commit.message }}
-          files: etchosts-latest.apk
-
-      - name: Name the release APK
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: cp app/build/outputs/apk/release/app-release.apk "etchosts-${GITHUB_REF_NAME}.apk"
+          files: |
+            dist/etchosts-latest.apk
+            dist/releases.json
 
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: etchosts-${{ github.ref_name }}.apk
+          files: |
+            dist/etchosts-${{ github.ref_name }}.apk
+            dist/releases.json
+
+      # The manifest URL every phone polls is on the rolling release.
+      - name: Publish the manifest on the rolling release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload latest dist/releases.json --clobber
