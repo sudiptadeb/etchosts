@@ -18,6 +18,7 @@ import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
 import io.github.sudiptadeb.amarit.Amarit
+import io.github.sudiptadeb.amarit.Updater
 
 class MainActivity : Activity() {
     private val reqVpn = 1
@@ -28,6 +29,7 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var hostsBox: EditText
     private lateinit var appsBtn: Button
+    private var updater: Updater? = null
     private var installedApps: List<AppPicker.Row>? = null
     private val ui = Handler(Looper.getMainLooper())
     private var updating = false
@@ -44,7 +46,11 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        Amarit.start(this) // update prompts, configured by the repository's amarit.json
+        try {
+            updater = Amarit.start(this) // update prompts, configured by the repository's amarit.json
+        } catch (e: Exception) { // an updater must never take the app down
+            android.util.Log.w(DnsVpnService.TAG, "update check not started", e)
+        }
         val root = findViewById<android.view.View>(R.id.root)
         root.setOnApplyWindowInsetsListener { v, insets -> // targetSdk 35 is edge-to-edge
             val pad = (16 * resources.displayMetrics.density).toInt()
@@ -103,6 +109,18 @@ class MainActivity : Activity() {
         val notif = findViewById<Switch>(R.id.notif)
         notif.isChecked = Prefs.notification(prefs)
         notif.setOnCheckedChangeListener { _, on -> prefs.edit().putBoolean(Prefs.NOTIFICATION, on).apply() }
+
+        // Updates: "stable" follows the v* releases; "latest" offers every push to main.
+        val devChannel = findViewById<Switch>(R.id.devChannel)
+        devChannel.isChecked = updater?.channel == "latest"
+        devChannel.setOnCheckedChangeListener { _, on -> updater?.channel = if (on) "latest" else "stable" }
+        findViewById<Button>(R.id.checkUpdate).setOnClickListener {
+            val u = updater ?: return@setOnClickListener
+            u.checkNow(this) { r ->
+                r.onSuccess { if (!it.update) Toast.makeText(this, "Up to date (${it.reason})", Toast.LENGTH_LONG).show() }
+                r.onFailure { Toast.makeText(this, "Update check failed: ${it.message}", Toast.LENGTH_LONG).show() }
+            }
+        }
 
         findViewById<Button>(R.id.importBtn).setOnClickListener {
             val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")

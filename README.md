@@ -70,8 +70,9 @@ Updates: the app checks for new builds about once an hour and when opened
 (the [amarit](https://github.com/sudiptadeb/amarit) Android library, reading
 the `releases.json` manifest CI publishes), and offers them with an Install /
 Later / Skip dialog. Android asks you to allow installs from this app the
-first time. It follows the stable `v*` releases; nothing installs without
-your tap.
+first time. By default it follows the stable `v*` releases; turn on **Offer
+every main build (dev)** to be offered each push to `main` instead, and
+**Check for updates** checks right away. Nothing installs without your tap.
 
 Matching rules:
 

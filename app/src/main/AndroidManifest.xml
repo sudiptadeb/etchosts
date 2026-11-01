@@ -9,6 +9,9 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <!-- Installing updates the amarit library downloads; the user confirms each one. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- The library's scheduled update check has a connectivity constraint; Android 14+
+         refuses to schedule such a job without this (normal permission, no prompt). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <application
         android:icon="@mipmap/ic_launcher"
