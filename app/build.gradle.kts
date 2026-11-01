@@ -60,6 +60,6 @@ val amaritProjectFile = tasks.register<Copy>("amaritProjectFile") {
 tasks.named("preBuild") { dependsOn(amaritProjectFile) }
 
 dependencies {
-    implementation("com.github.sudiptadeb:amarit:7cea70f") // update prompts from releases.json
+    implementation("com.github.sudiptadeb:amarit:v0.6.0") // update prompts from releases.json
     testImplementation("junit:junit:4.13.2")
 }
