@@ -23,15 +23,29 @@ jobs:
           java-version: "17"
           cache: gradle
 
+      # The stable signing key lives in repository secrets; pull requests from
+      # forks do not get secrets, so those builds fall back to the debug key.
+      - name: Restore the signing key
+        if: github.event_name == 'push'
+        env:
+          KEYSTORE_B64: ${{ secrets.ETCHOSTS_KEYSTORE_B64 }}
+        run: |
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/etchosts-release.jks"
+          echo "ETCHOSTS_KEYSTORE=$RUNNER_TEMP/etchosts-release.jks" >> "$GITHUB_ENV"
+
       # ubuntu runners ship the Android SDK (ANDROID_HOME); AGP fetches any
       # missing platform or build-tools itself.
       - name: Test and build
-        run: ./gradlew testDebugUnitTest assembleDebug --no-daemon
+        env:
+          ETCHOSTS_KEYSTORE_PASSWORD: ${{ secrets.ETCHOSTS_KEYSTORE_PASSWORD }}
+          ETCHOSTS_KEY_ALIAS: ${{ secrets.ETCHOSTS_KEY_ALIAS }}
+          ETCHOSTS_KEY_PASSWORD: ${{ secrets.ETCHOSTS_KEY_PASSWORD }}
+        run: ./gradlew testDebugUnitTest assembleRelease --no-daemon
 
       - uses: actions/upload-artifact@v4
         with:
-          name: etchosts-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          name: etchosts-apk
+          path: app/build/outputs/apk/release/app-release.apk
 
       # Every push to main replaces the rolling "latest" pre-release, so the
       # newest APK is always one click away without cutting a version tag.
@@ -40,7 +54,7 @@ jobs:
         run: |
           git tag -f latest
           git push -f origin latest
-          cp app/build/outputs/apk/debug/app-debug.apk etchosts-latest-debug.apk
+          cp app/build/outputs/apk/release/app-release.apk etchosts-latest.apk
 
       - uses: softprops/action-gh-release@v2
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -49,16 +63,16 @@ jobs:
           name: Latest build (main)
           prerelease: true
           body: |
-            Debug APK built from main at ${{ github.sha }}.
+            APK built from main at ${{ github.sha }}.
 
             ${{ github.event.head_commit.message }}
-          files: etchosts-latest-debug.apk
+          files: etchosts-latest.apk
 
       - name: Name the release APK
         if: startsWith(github.ref, 'refs/tags/v')
-        run: cp app/build/outputs/apk/debug/app-debug.apk "etchosts-${GITHUB_REF_NAME}-debug.apk"
+        run: cp app/build/outputs/apk/release/app-release.apk "etchosts-${GITHUB_REF_NAME}.apk"
 
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
-          files: etchosts-${{ github.ref_name }}-debug.apk
+          files: etchosts-${{ github.ref_name }}.apk

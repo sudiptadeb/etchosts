@@ -17,8 +17,10 @@ open it (allow "install unknown apps" for your browser when asked), or build
 it yourself (below). The **Latest build (main)** pre-release is replaced on
 every push to `main`; the `v*` releases are the versioned ones.
 
-Release APKs are debug-signed by CI with a throwaway key, so a newer release
-may refuse to install over an older one. Uninstall the old version first.
+Release APKs are signed by CI with one stable key, so newer builds install
+over older ones in place. The only exception is upgrading from a build older
+than 0.2.1, which was signed with a throwaway debug key: uninstall that one
+first.
 
 ## Use
 
@@ -127,7 +129,10 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # or set ANDROID_H
 
 The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. CI builds every
 push; a push to `main` replaces the rolling `latest` pre-release with its APK,
-and each `v*` tag gets its own GitHub Release.
+and each `v*` tag gets its own GitHub Release. CI builds `assembleRelease`
+signed with a stable key from repository secrets (`ETCHOSTS_KEYSTORE_B64`,
+`ETCHOSTS_KEYSTORE_PASSWORD`, `ETCHOSTS_KEY_ALIAS`, `ETCHOSTS_KEY_PASSWORD`);
+without those variables a release build falls back to the debug key.
 
 Debug logging is off by default. To see per-query lines:
 

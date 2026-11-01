@@ -11,13 +11,31 @@ android {
         applicationId = "app.etchosts"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
+    }
+
+    // Release builds are signed with the stable key when the ETCHOSTS_* variables
+    // are set (CI, from repository secrets); otherwise with the debug key, so a
+    // local `assembleRelease` still works. A stable certificate is what lets an
+    // installed app upgrade in place instead of demanding an uninstall.
+    val stableKeystore = System.getenv("ETCHOSTS_KEYSTORE")
+    signingConfigs {
+        create("stable") {
+            if (stableKeystore != null) {
+                storeFile = file(stableKeystore)
+                storePassword = System.getenv("ETCHOSTS_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ETCHOSTS_KEY_ALIAS")
+                keyPassword = System.getenv("ETCHOSTS_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = if (stableKeystore != null) signingConfigs.getByName("stable")
+            else signingConfigs.getByName("debug")
         }
     }
 
