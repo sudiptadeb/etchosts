@@ -26,6 +26,8 @@ class MainActivity : Activity() {
     private lateinit var toggle: Switch
     private lateinit var status: TextView
     private lateinit var hostsBox: EditText
+    private lateinit var appsBtn: Button
+    private var installedApps: List<AppPicker.Row>? = null
     private val ui = Handler(Looper.getMainLooper())
     private var updating = false
     private var dirty = false
@@ -75,6 +77,31 @@ class MainActivity : Activity() {
             prefs.edit().putString(Prefs.UPSTREAM, g.findViewById<RadioButton>(id).tag as String).apply()
         }
 
+        val appMode = findViewById<RadioGroup>(R.id.appMode)
+        appMode.check(
+            when (Prefs.appMode(prefs)) {
+                Prefs.MODE_EXCLUDE -> R.id.modeExclude
+                Prefs.MODE_ONLY -> R.id.modeOnly
+                else -> R.id.modeAll
+            }
+        )
+        appMode.setOnCheckedChangeListener { _, id ->
+            val mode = when (id) {
+                R.id.modeExclude -> Prefs.MODE_EXCLUDE
+                R.id.modeOnly -> Prefs.MODE_ONLY
+                else -> Prefs.MODE_ALL
+            }
+            prefs.edit().putString(Prefs.APP_MODE, mode).apply()
+            refresh()
+            if (mode != Prefs.MODE_ALL && Prefs.appList(prefs).isEmpty()) pickApps()
+        }
+        appsBtn = findViewById(R.id.appsBtn)
+        appsBtn.setOnClickListener { pickApps() }
+
+        val notif = findViewById<Switch>(R.id.notif)
+        notif.isChecked = Prefs.notification(prefs)
+        notif.setOnCheckedChangeListener { _, on -> prefs.edit().putBoolean(Prefs.NOTIFICATION, on).apply() }
+
         findViewById<Button>(R.id.importBtn).setOnClickListener {
             val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
             startActivityForResult(i, reqImport)
@@ -101,8 +128,37 @@ class MainActivity : Activity() {
         if (dirty) { ui.removeCallbacks(save); save.run() }
     }
 
+    private fun pickApps() {
+        val prefs = Prefs.get(this)
+        val cached = installedApps
+        if (cached != null) {
+            AppPicker.show(this, cached, Prefs.appList(prefs)) { saveApps(it) }
+            return
+        }
+        appsBtn.isEnabled = false
+        Thread {
+            val rows = try { AppPicker.installed(packageManager, packageName) } catch (e: Exception) { emptyList() }
+            ui.post {
+                installedApps = rows
+                appsBtn.isEnabled = true
+                if (!isFinishing) AppPicker.show(this, rows, Prefs.appList(prefs)) { saveApps(it) }
+            }
+        }.start()
+    }
+
+    private fun saveApps(apps: Set<String>) {
+        Prefs.get(this).edit().putStringSet(Prefs.APP_LIST, apps).apply()
+        refresh()
+    }
+
     private fun requestStart() {
         ui.removeCallbacks(save); save.run()
+        val prefs = Prefs.get(this)
+        if (Prefs.appMode(prefs) == Prefs.MODE_ONLY && Prefs.appList(prefs).isEmpty()) {
+            Toast.makeText(this, "Choose at least one app, or pick another app mode", Toast.LENGTH_LONG).show()
+            refresh()
+            return
+        }
         val consent = VpnService.prepare(this)
         if (consent != null) startActivityForResult(consent, reqVpn) else DnsVpnService.start(this)
     }
@@ -140,13 +196,18 @@ class MainActivity : Activity() {
         updating = true
         toggle.isChecked = DnsVpnService.running
         updating = false
+        val prefs = Prefs.get(this)
+        val mode = Prefs.appMode(prefs)
+        val apps = Prefs.appList(prefs)
+        appsBtn.text = if (apps.isEmpty()) "Choose apps" else "Choose apps (${apps.size})"
         val t = HostsTable.parse(hostsBox.text.toString())
         val bad = if (t.badLines.isEmpty()) "" else " | bad lines: ${t.badLines.take(5).joinToString()}"
+        val scope = if (mode == Prefs.MODE_ALL) "" else " | ${Prefs.scopeText(mode, apps)}"
         status.text = if (DnsVpnService.running) {
-            "On. ${t.size} names | answered locally ${DnsVpnService.local.get()}, " +
+            "On. ${t.size} names$scope | answered locally ${DnsVpnService.local.get()}, " +
                 "forwarded ${DnsVpnService.forwarded.get()}, failed ${DnsVpnService.failed.get()}$bad"
         } else {
-            "Off. ${t.size} names$bad"
+            "Off. ${t.size} names$scope$bad"
         }
     }
 }

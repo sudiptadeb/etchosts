@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.VpnService
 import android.os.Build
@@ -40,7 +41,9 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
     companion object {
         const val TAG = "etchosts"
         const val ACTION_STOP = "app.etchosts.STOP"
+        const val ACTION_HIDE_NOTIFICATION = "app.etchosts.HIDE_NOTIFICATION"
         private const val CHANNEL = "vpn"
+        private const val CHANNEL_QUIET = "vpn_quiet"
         private const val NOTIF_ID = 1
         private const val MAX_IN_FLIGHT = 16
 
@@ -82,12 +85,21 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
     private lateinit var prefs: SharedPreferences
     @Volatile private var hosts = HostsTable.EMPTY
     @Volatile private var upstream: Upstream? = null
+    private var appMode = Prefs.MODE_ALL
+    private var apps: Set<String> = emptySet()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
-            shutdown()
-            stopSelf()
-            return START_NOT_STICKY
+        when (intent?.action) {
+            ACTION_STOP -> {
+                shutdown()
+                stopSelf()
+                return START_NOT_STICKY
+            }
+            ACTION_HIDE_NOTIFICATION -> { // the pref listener re-posts it on the quiet channel
+                Prefs.get(this).edit().putBoolean(Prefs.NOTIFICATION, false).apply()
+                if (!running) stopSelf()
+                return if (running) START_STICKY else START_NOT_STICKY
+            }
         }
         goForeground()
         if (tun == null && !startTunnel()) {
@@ -111,6 +123,16 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
     private fun startTunnel(): Boolean {
         prefs = Prefs.get(this)
         loadPrefs()
+        if (!openTun()) return false
+        prefs.registerOnSharedPreferenceChangeListener(this)
+        setRunning(true)
+        Log.i(TAG, "started, ${hosts.size} names, upstream ${prefs.getString(Prefs.UPSTREAM, null)}, " +
+            Prefs.scopeText(appMode, apps))
+        return true
+    }
+
+    /** Establishes the tun with the current app scope and starts the reader. */
+    private fun openTun(): Boolean {
         val b = Builder()
             .setSession(getString(R.string.app_name))
             .setMtu(1500)
@@ -121,8 +143,7 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
             .addRoute(DNS4, 32)
             .addRoute(DNS6, 128)
             .setBlocking(true)
-        // Our own upstream lookups (DoH hostnames) must not loop back into the tun.
-        b.addDisallowedApplication(packageName)
+        if (!applyAppScope(b)) return false
         if (Build.VERSION.SDK_INT >= 29) b.setMetered(false)
         val fd = try { b.establish() } catch (e: Exception) { Log.w(TAG, "establish failed", e); null }
             ?: return false
@@ -131,22 +152,71 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
         wakeRead = pipe[0]; wakeWrite = pipe[1]
         pool = ThreadPoolExecutor(MAX_IN_FLIGHT, MAX_IN_FLIGHT, 30, TimeUnit.SECONDS, ArrayBlockingQueue(64))
             .apply { allowCoreThreadTimeOut(true) }
-        prefs.registerOnSharedPreferenceChangeListener(this)
         reader = Thread({ readLoop(fd.fileDescriptor) }, "etchosts-tun").apply { start() }
-        setRunning(true)
-        Log.i(TAG, "started, ${hosts.size} names, upstream ${prefs.getString(Prefs.UPSTREAM, null)}")
+        return true
+    }
+
+    /**
+     * Android allows either an allow-list or a deny-list, never both. In the
+     * deny-list case we always add ourselves: our own upstream lookups (DoH
+     * hostnames) must not loop back into the tun. In the allow-list case every
+     * unlisted app, including this one, is already outside the VPN.
+     */
+    private fun applyAppScope(b: Builder): Boolean {
+        if (appMode == Prefs.MODE_ONLY) {
+            var added = 0
+            for (pkg in apps) {
+                if (pkg == packageName) continue
+                try { b.addAllowedApplication(pkg); added++ } catch (e: PackageManager.NameNotFoundException) {
+                    debug("not installed, skipped: $pkg")
+                }
+            }
+            if (added == 0) { // an empty allow-list would mean "every app", the opposite of what was asked
+                Log.w(TAG, "mode 'only' with no installed apps chosen, not starting")
+                return false
+            }
+            return true
+        }
+        b.addDisallowedApplication(packageName)
+        if (appMode == Prefs.MODE_EXCLUDE) {
+            for (pkg in apps) {
+                if (pkg == packageName) continue
+                try { b.addDisallowedApplication(pkg) } catch (e: PackageManager.NameNotFoundException) {
+                    debug("not installed, skipped: $pkg")
+                }
+            }
+        }
         return true
     }
 
     private fun loadPrefs() {
         hosts = HostsTable.parse(prefs.getString(Prefs.HOSTS, "") ?: "")
         upstream = Upstream.of(prefs.getString(Prefs.UPSTREAM, null)) { protect(it) }
+        appMode = Prefs.appMode(prefs)
+        apps = Prefs.appList(prefs)
     }
 
     override fun onSharedPreferenceChanged(p: SharedPreferences, key: String?) {
         loadPrefs() // hosts and upstream edits apply live
-        debug("reloaded: ${hosts.size} names")
-        notifyManager().notify(NOTIF_ID, buildNotification())
+        debug("reloaded: ${hosts.size} names, ${Prefs.scopeText(appMode, apps)}")
+        when (key) {
+            // The app lists are fixed at establish(), so re-establish the tun.
+            Prefs.APP_MODE, Prefs.APP_LIST -> reopenTun()
+            // Importance lives on the channel, so switch channels by re-posting as foreground.
+            Prefs.NOTIFICATION -> { if (running) goForeground(); return }
+        }
+        if (running) notifyManager().notify(NOTIF_ID, buildNotification())
+    }
+
+    @Synchronized
+    private fun reopenTun() {
+        if (tun == null) return
+        closeTun()
+        if (!openTun()) {
+            Log.w(TAG, "could not re-establish the tun after an app scope change")
+            shutdown()
+            stopSelf()
+        }
     }
 
     private fun readLoop(fd: FileDescriptor) {
@@ -221,6 +291,13 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
     private fun shutdown() {
         if (tun == null && !running) return
         if (::prefs.isInitialized) prefs.unregisterOnSharedPreferenceChangeListener(this)
+        closeTun()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        setRunning(false)
+        Log.i(TAG, "stopped")
+    }
+
+    private fun closeTun() {
         wakeWrite?.let { try { Os.write(it, byteArrayOf(1), 0, 1) } catch (_: Exception) {} }
         reader?.join(2000) // the reader leaves poll() and stops touching the fd
         reader = null
@@ -229,9 +306,6 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
         tun = null
         listOfNotNull(wakeRead, wakeWrite).forEach { try { Os.close(it) } catch (_: Exception) {} }
         wakeRead = null; wakeWrite = null
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        setRunning(false)
-        Log.i(TAG, "stopped")
     }
 
     private fun setRunning(r: Boolean) {
@@ -244,8 +318,12 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
     private fun notifyManager() = getSystemService(NotificationManager::class.java)
 
     private fun goForeground() {
-        notifyManager().createNotificationChannel(
-            NotificationChannel(CHANNEL, "Running", NotificationManager.IMPORTANCE_LOW)
+        val nm = notifyManager()
+        nm.createNotificationChannel(NotificationChannel(CHANNEL, "Running", NotificationManager.IMPORTANCE_LOW))
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_QUIET, "Running (minimised)", NotificationManager.IMPORTANCE_MIN).apply {
+                description = "No status bar icon; collapsed in the notification shade"
+            }
         )
         val n = buildNotification()
         if (Build.VERSION.SDK_INT >= 34) {
@@ -256,19 +334,26 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
     }
 
     private fun buildNotification(): Notification {
+        val p = if (::prefs.isInitialized) prefs else Prefs.get(this)
+        val quiet = !Prefs.notification(p)
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
         )
         val stop = PendingIntent.getService(
             this, 1, Intent(this, DnsVpnService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE
         )
-        return Notification.Builder(this, CHANNEL)
+        val hide = PendingIntent.getService(
+            this, 2, Intent(this, DnsVpnService::class.java).setAction(ACTION_HIDE_NOTIFICATION),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val b = Notification.Builder(this, if (quiet) CHANNEL_QUIET else CHANNEL)
             .setSmallIcon(R.drawable.ic_tile)
             .setContentTitle("DNS override on")
-            .setContentText("${hosts.size} names from your hosts list")
+            .setContentText("${hosts.size} names, ${Prefs.scopeText(appMode, apps)}")
             .setContentIntent(open)
             .setOngoing(true)
             .addAction(Notification.Action.Builder(null, "Stop", stop).build())
-            .build()
+        if (!quiet) b.addAction(Notification.Action.Builder(null, "Hide", hide).build())
+        return b.build()
     }
 }

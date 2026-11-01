@@ -33,12 +33,35 @@ may refuse to install over an older one. Uninstall the old version first.
    Or tap **Import file** to load one (it replaces the text box).
 2. Pick an upstream for every other name: Cloudflare or Google, over DoH
    (HTTPS) or plain UDP port 53.
-3. Turn the switch on and accept the VPN prompt (once). A Quick Settings tile
+3. Optionally limit which apps see the override (below).
+4. Turn the switch on and accept the VPN prompt (once). A Quick Settings tile
    ("etc hosts") toggles it too; add it from the tile editor.
 
 Edits to the hosts list and the upstream apply **live** while it is running.
 The status line shows how many queries were answered locally, forwarded and
 failed, and lists the line numbers of hosts lines it could not parse.
+
+Per-app scope ("Apps it applies to"):
+
+- **All**: every app resolves through the hosts list (default).
+- **All except chosen**: the chosen apps keep using the normal resolver, so
+  you can keep, say, your banking app or a VPN-sensitive game out of it.
+- **Only chosen**: just the chosen apps get the override; everything else is
+  untouched. At least one installed app must be chosen or it refuses to start.
+
+Tap **Choose apps** to pick from the installed apps that can use the network
+(type to filter). Changing the mode or the list while it is running
+re-establishes the VPN on the spot. Per-app routing is a feature of Android's
+VPN API, so an app opened through another app (a WebView, a share sheet) is
+attributed the way Android attributes its traffic.
+
+Notification: Android requires a "running" notification while the VPN is on.
+The **Status bar notification** switch, or the **Hide** action on the
+notification itself, moves it to a minimised channel: no status bar icon, just
+a collapsed line in the notification shade. Turn the switch back on to show it
+normally. On some Android versions the system then shows its own small
+"running in the background" entry instead; that one cannot be removed by an
+app.
 
 Matching rules:
 
@@ -84,8 +107,13 @@ lookups never loop), then writes the reply back as an IPv4/IPv6 UDP packet
 with fresh checksums. At most 16 queries are in flight; beyond that, and on
 upstream failure or timeout (4 s), the client gets SERVFAIL.
 
+Per-app scope uses the VPN builder's allowed/disallowed application lists,
+which Android applies by the UID that opens the socket. The app always keeps
+itself out of its own VPN so its upstream lookups never loop.
+
 No analytics, no other network traffic. Permissions: internet, foreground
-service, notifications (the required "running" notification).
+service, notifications (the required "running" notification), and
+"query all packages" so the app picker can list installed apps.
 
 ## Build
 
