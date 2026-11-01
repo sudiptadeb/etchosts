@@ -45,7 +45,7 @@ jobs:
 
       - name: Install the amarit release tool
         if: github.event_name == 'push'
-        run: go install github.com/sudiptadeb/amarit/cmd/amarit@5ad17cb
+        run: go install github.com/sudiptadeb/amarit/cmd/amarit@7cea70f
 
       # main pushes are the rolling "latest" channel: versionName gets +g<sha7> so a
       # phone on that channel sees a new string on the same versionCode. Tags are
