@@ -126,7 +126,7 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
         if (!openTun()) return false
         prefs.registerOnSharedPreferenceChangeListener(this)
         setRunning(true)
-        Log.i(TAG, "started, ${hosts.size} names, upstream ${prefs.getString(Prefs.UPSTREAM, null)}, " +
+        Log.i(TAG, "started, ${hosts.size} names, upstream ${prefs.getString(Prefs.UPSTREAM, null) ?: "default"}, " +
             Prefs.scopeText(appMode, apps))
         return true
     }

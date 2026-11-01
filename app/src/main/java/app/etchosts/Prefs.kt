@@ -34,7 +34,7 @@ object Prefs {
 
     /** Human-readable scope, used by the status line and the notification. */
     fun scopeText(mode: String, apps: Set<String>): String = when (mode) {
-        MODE_EXCLUDE -> "all apps except ${apps.size}"
+        MODE_EXCLUDE -> if (apps.isEmpty()) "all apps" else "all apps except ${apps.size}"
         MODE_ONLY -> "only ${apps.size} ${if (apps.size == 1) "app" else "apps"}"
         else -> "all apps"
     }

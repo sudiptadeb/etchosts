@@ -12,133 +12,97 @@
         android:layout_height="wrap_content"
         android:minHeight="56dp"
         android:text="DNS override"
+        android:textColor="?android:attr/textColorPrimary"
         android:textSize="22sp" />
 
     <TextView
         android:id="@+id/status"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:paddingBottom="8dp" />
+        style="@style/Helper"
+        android:lineSpacingExtra="2sp"
+        android:paddingBottom="4dp" />
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="Upstream for all other names"
-        android:textStyle="bold" />
-
-    <RadioGroup
-        android:id="@+id/upstream"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingTop="8dp">
+    <LinearLayout style="@style/SectionRow">
 
         <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Apps it applies to"
-            android:textStyle="bold" />
+            style="@style/Section"
+            android:text="Upstream for other names" />
+    </LinearLayout>
+
+    <Spinner
+        android:id="@+id/upstream"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:spinnerMode="dropdown" />
+
+    <LinearLayout style="@style/SectionRow">
+
+        <TextView
+            style="@style/Section"
+            android:text="Apps" />
 
         <Button
             android:id="@+id/appsBtn"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            style="@style/FlatButton"
             android:text="Choose apps" />
     </LinearLayout>
 
-    <RadioGroup
+    <Spinner
         android:id="@+id/appMode"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:layout_height="48dp"
+        android:spinnerMode="dropdown" />
 
-        <RadioButton
-            android:id="@+id/modeAll"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="All" />
+    <LinearLayout style="@style/SectionRow">
 
-        <RadioButton
-            android:id="@+id/modeExclude"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="All except chosen" />
-
-        <RadioButton
-            android:id="@+id/modeOnly"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Only chosen" />
-    </RadioGroup>
-
-    <Switch
-        android:id="@+id/notif"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:minHeight="40dp"
-        android:text="Status bar notification while on" />
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal">
-
-        <Switch
-            android:id="@+id/devChannel"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:minHeight="40dp"
-            android:text="Offer every main build (dev)" />
+        <TextView
+            style="@style/Section"
+            android:text="Options" />
 
         <Button
             android:id="@+id/checkUpdate"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            style="@style/FlatButton"
             android:text="Check for updates" />
     </LinearLayout>
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingTop="8dp">
+    <Switch
+        android:id="@+id/notif"
+        style="@style/RowSwitch"
+        android:text="Status bar notification while on" />
+
+    <Switch
+        android:id="@+id/devChannel"
+        style="@style/RowSwitch"
+        android:text="Offer every main build (dev channel)" />
+
+    <LinearLayout style="@style/SectionRow">
 
         <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Hosts (IP name [name...]), edits apply live"
-            android:textStyle="bold" />
+            style="@style/Section"
+            android:text="Hosts" />
 
         <Button
             android:id="@+id/importBtn"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            style="@style/FlatButton"
             android:text="Import file" />
     </LinearLayout>
+
+    <TextView
+        style="@style/Helper"
+        android:paddingBottom="8dp"
+        android:text="One entry per line: IP, then one or more names. Edits apply live." />
 
     <EditText
         android:id="@+id/hosts"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
+        android:background="@drawable/box"
         android:fontFamily="monospace"
         android:gravity="top|start"
         android:hint="192.0.2.10  app.example.test"
         android:importantForAutofill="no"
         android:inputType="textMultiLine|textNoSuggestions"
+        android:padding="12dp"
         android:scrollbars="vertical"
         android:textSize="14sp" />
 </LinearLayout>

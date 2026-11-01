@@ -12,8 +12,9 @@ import android.text.TextWatcher
 import android.view.WindowInsets
 import android.widget.Button
 import android.widget.EditText
-import android.widget.RadioButton
-import android.widget.RadioGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
+import android.widget.Spinner
 import android.widget.Switch
 import android.widget.TextView
 import android.widget.Toast
@@ -74,31 +75,19 @@ class MainActivity : Activity() {
             }
         })
 
-        val group = findViewById<RadioGroup>(R.id.upstream)
-        val current = prefs.getString(Prefs.UPSTREAM, Upstream.CHOICES.keys.first())
-        Upstream.CHOICES.entries.forEachIndexed { i, (key, label) ->
-            val rb = RadioButton(this).apply { id = 100 + i; text = label; tag = key }
-            group.addView(rb)
-            if (key == current) rb.isChecked = true
-        }
-        group.setOnCheckedChangeListener { g, id ->
-            prefs.edit().putString(Prefs.UPSTREAM, g.findViewById<RadioButton>(id).tag as String).apply()
+        val upstreamKeys = Upstream.CHOICES.keys.toList()
+        val current = prefs.getString(Prefs.UPSTREAM, upstreamKeys.first())
+        spinner(R.id.upstream, Upstream.CHOICES.values.toList(), upstreamKeys.indexOf(current).coerceAtLeast(0)) { i ->
+            prefs.edit().putString(Prefs.UPSTREAM, upstreamKeys[i]).apply()
         }
 
-        val appMode = findViewById<RadioGroup>(R.id.appMode)
-        appMode.check(
-            when (Prefs.appMode(prefs)) {
-                Prefs.MODE_EXCLUDE -> R.id.modeExclude
-                Prefs.MODE_ONLY -> R.id.modeOnly
-                else -> R.id.modeAll
-            }
-        )
-        appMode.setOnCheckedChangeListener { _, id ->
-            val mode = when (id) {
-                R.id.modeExclude -> Prefs.MODE_EXCLUDE
-                R.id.modeOnly -> Prefs.MODE_ONLY
-                else -> Prefs.MODE_ALL
-            }
+        val modes = listOf(Prefs.MODE_ALL, Prefs.MODE_EXCLUDE, Prefs.MODE_ONLY)
+        spinner(
+            R.id.appMode, listOf("All apps", "All apps except the chosen ones", "Only the chosen apps"),
+            modes.indexOf(Prefs.appMode(prefs)).coerceAtLeast(0),
+        ) { i ->
+            val mode = modes[i]
+            if (mode == Prefs.appMode(prefs)) return@spinner
             prefs.edit().putString(Prefs.APP_MODE, mode).apply()
             refresh()
             if (mode != Prefs.MODE_ALL && Prefs.appList(prefs).isEmpty()) pickApps()
@@ -146,6 +135,22 @@ class MainActivity : Activity() {
         DnsVpnService.onStateChange = null
         ui.removeCallbacks(tick)
         if (dirty) { ui.removeCallbacks(save); save.run() }
+    }
+
+    /** A drop-down over [labels], preselected at [selected]; [onPick] fires only on a user's pick. */
+    private fun spinner(id: Int, labels: List<String>, selected: Int, onPick: (Int) -> Unit) {
+        val sp = findViewById<Spinner>(id)
+        sp.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, labels).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        sp.setSelection(selected, false)
+        sp.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(p: AdapterView<*>?, v: android.view.View?, pos: Int, idL: Long) {
+                if (pos != selected || sp.tag == true) onPick(pos)
+                sp.tag = true // the first callback is the preselection, not a pick
+            }
+            override fun onNothingSelected(p: AdapterView<*>?) {}
+        }
     }
 
     private fun pickApps() {
@@ -221,13 +226,14 @@ class MainActivity : Activity() {
         val apps = Prefs.appList(prefs)
         appsBtn.text = if (apps.isEmpty()) "Choose apps" else "Choose apps (${apps.size})"
         val t = HostsTable.parse(hostsBox.text.toString())
-        val bad = if (t.badLines.isEmpty()) "" else " | bad lines: ${t.badLines.take(5).joinToString()}"
-        val scope = if (mode == Prefs.MODE_ALL) "" else " | ${Prefs.scopeText(mode, apps)}"
+        val bad = if (t.badLines.isEmpty()) "" else "\nCould not parse lines ${t.badLines.take(5).joinToString()}"
+        val names = "${t.size} ${if (t.size == 1) "name" else "names"}"
+        val scope = if (mode == Prefs.MODE_ALL) "" else " \u00b7 ${Prefs.scopeText(mode, apps)}"
         status.text = if (DnsVpnService.running) {
-            "On. ${t.size} names$scope | answered locally ${DnsVpnService.local.get()}, " +
-                "forwarded ${DnsVpnService.forwarded.get()}, failed ${DnsVpnService.failed.get()}$bad"
+            "On \u00b7 $names$scope\nAnswered locally ${DnsVpnService.local.get()} \u00b7 " +
+                "forwarded ${DnsVpnService.forwarded.get()} \u00b7 failed ${DnsVpnService.failed.get()}$bad"
         } else {
-            "Off. ${t.size} names$scope$bad"
+            "Off \u00b7 $names$scope$bad"
         }
     }
 }
