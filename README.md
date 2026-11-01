@@ -14,7 +14,8 @@ LAN by name, the same way you would edit `/etc/hosts` on a laptop.
 
 Download the APK from the [Releases](../../releases) page on the phone and
 open it (allow "install unknown apps" for your browser when asked), or build
-it yourself (below).
+it yourself (below). The **Latest build (main)** pre-release is replaced on
+every push to `main`; the `v*` releases are the versioned ones.
 
 Release APKs are debug-signed by CI with a throwaway key, so a newer release
 may refuse to install over an older one. Uninstall the old version first.
@@ -125,7 +126,8 @@ echo "sdk.dir=$HOME/Library/Android/sdk" > local.properties   # or set ANDROID_H
 ```
 
 The APK lands in `app/build/outputs/apk/debug/app-debug.apk`. CI builds every
-push and attaches the APK to a GitHub Release for each `v*` tag.
+push; a push to `main` replaces the rolling `latest` pre-release with its APK,
+and each `v*` tag gets its own GitHub Release.
 
 Debug logging is off by default. To see per-query lines:
 

@@ -13,7 +13,7 @@ jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # only used by the release step on tags
+      contents: write # release steps: the rolling "latest" on main pushes and v* tags
     steps:
       - uses: actions/checkout@v5
 
@@ -32,6 +32,27 @@ jobs:
         with:
           name: etchosts-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+
+      # Every push to main replaces the rolling "latest" pre-release, so the
+      # newest APK is always one click away without cutting a version tag.
+      - name: Move the latest tag to this commit
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          git tag -f latest
+          git push -f origin latest
+          cp app/build/outputs/apk/debug/app-debug.apk etchosts-latest-debug.apk
+
+      - uses: softprops/action-gh-release@v2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        with:
+          tag_name: latest
+          name: Latest build (main)
+          prerelease: true
+          body: |
+            Debug APK built from main at ${{ github.sha }}.
+
+            ${{ github.event.head_commit.message }}
+          files: etchosts-latest-debug.apk
 
       - name: Name the release APK
         if: startsWith(github.ref, 'refs/tags/v')
