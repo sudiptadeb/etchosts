@@ -9,6 +9,11 @@ object Dns {
 
     class Question(val id: Int, val name: String, val type: Int, val end: Int)
 
+    fun typeName(t: Int): String = when (t) {
+        TYPE_A -> "A"; TYPE_AAAA -> "AAAA"; 5 -> "CNAME"; 12 -> "PTR"; 15 -> "MX"; 16 -> "TXT"
+        33 -> "SRV"; 64 -> "SVCB"; 65 -> "HTTPS"; else -> "type $t"
+    }
+
     fun u16(b: ByteArray, o: Int) = ((b[o].toInt() and 0xff) shl 8) or (b[o + 1].toInt() and 0xff)
 
     private fun put16(b: ByteArray, o: Int, v: Int) {

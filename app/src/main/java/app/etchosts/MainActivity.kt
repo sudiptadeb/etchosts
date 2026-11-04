@@ -1,6 +1,10 @@
 package app.etchosts
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.view.ViewGroup
 import android.content.Intent
 import android.net.VpnService
 import android.os.Build
@@ -28,6 +32,7 @@ class MainActivity : Activity() {
 
     private lateinit var toggle: Switch
     private lateinit var status: TextView
+    private lateinit var warning: TextView
     private lateinit var hostsBox: EditText
     private lateinit var appsBtn: Button
     private var updater: Updater? = null
@@ -56,13 +61,19 @@ class MainActivity : Activity() {
         root.setOnApplyWindowInsetsListener { v, insets -> // targetSdk 35 is edge-to-edge
             val pad = (16 * resources.displayMetrics.density).toInt()
             if (Build.VERSION.SDK_INT >= 30) {
-                val i = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
-                v.setPadding(i.left + pad, i.top + pad, i.right + pad, i.bottom + pad)
+                // The keyboard shrinks the scroll view (a margin, not padding): ScrollView then
+                // keeps the focused editor and its cursor above the keyboard by itself.
+                val sys = insets.getInsets(WindowInsets.Type.systemBars())
+                val ime = insets.getInsets(WindowInsets.Type.ime()).bottom
+                val lp = v.layoutParams as ViewGroup.MarginLayoutParams
+                if (lp.bottomMargin != ime) { lp.bottomMargin = ime; v.layoutParams = lp }
+                v.setPadding(sys.left + pad, sys.top + pad, sys.right + pad, maxOf(sys.bottom - ime, 0) + pad)
             }
             insets
         }
         toggle = findViewById(R.id.toggle)
         status = findViewById(R.id.status)
+        warning = findViewById(R.id.warning)
         hostsBox = findViewById(R.id.hosts)
         val prefs = Prefs.get(this)
 
@@ -110,6 +121,8 @@ class MainActivity : Activity() {
                 r.onFailure { Toast.makeText(this, "Update check failed: ${it.message}", Toast.LENGTH_LONG).show() }
             }
         }
+
+        findViewById<Button>(R.id.recentBtn).setOnClickListener { showRecent() }
 
         findViewById<Button>(R.id.importBtn).setOnClickListener {
             val i = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
@@ -184,8 +197,75 @@ class MainActivity : Activity() {
             refresh()
             return
         }
+        if (otherVpnActive()) {
+            AlertDialog.Builder(this)
+                .setTitle("Another VPN is on")
+                .setMessage(
+                    "Android runs only one VPN at a time. Turning on the DNS override disconnects the " +
+                        "other VPN (for example a mesh or work VPN), and turning that one on again turns this off."
+                )
+                .setPositiveButton("Turn on anyway") { _, _ -> startVpn() }
+                .setNegativeButton("Cancel") { _, _ -> refresh() }
+                .setOnCancelListener { refresh() }
+                .show()
+            return
+        }
+        startVpn()
+    }
+
+    private fun startVpn() {
         val consent = VpnService.prepare(this)
         if (consent != null) startActivityForResult(consent, reqVpn) else DnsVpnService.start(this)
+    }
+
+    /** Whether some VPN other than ours is up (ours is never up when this is asked). */
+    private fun otherVpnActive(): Boolean {
+        if (DnsVpnService.running) return false
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return false
+        return try {
+            @Suppress("DEPRECATION")
+            cm.allNetworks.any {
+                val c = cm.getNetworkCapabilities(it) ?: return@any false
+                // Our own tun can linger a moment after stopping; Android reveals the owner only to the owner.
+                c.hasTransport(NetworkCapabilities.TRANSPORT_VPN) &&
+                    !(Build.VERSION.SDK_INT >= 29 && c.ownerUid == android.os.Process.myUid())
+            }
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /** Strict Private DNS (a hostname) sends every lookup to that server, around this app. */
+    private fun privateDnsHost(): String? {
+        if (Build.VERSION.SDK_INT < 28) return null
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return null
+        return try {
+            cm.activeNetwork?.let { cm.getLinkProperties(it) }?.privateDnsServerName
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun showRecent() {
+        val lines = DnsVpnService.recentLookups()
+        val text = when {
+            lines.isNotEmpty() -> lines.joinToString("\n")
+            DnsVpnService.running -> "No lookups yet. Open an app that uses one of your names."
+            else -> "Turn the override on to see lookups here."
+        }
+        val tv = TextView(this).apply {
+            this.text = text
+            typeface = android.graphics.Typeface.MONOSPACE
+            textSize = 12f
+            setTextIsSelectable(true)
+            val p = (20 * resources.displayMetrics.density).toInt()
+            setPadding(p, p / 2, p, 0)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Recent lookups (newest first)")
+            .setView(android.widget.ScrollView(this).apply { addView(tv) })
+            .setPositiveButton("Close", null)
+            .show()
     }
 
     @Deprecated("Activity result API without AndroidX")
@@ -218,6 +298,8 @@ class MainActivity : Activity() {
     }
 
     private fun refresh() {
+        // onRevoke is the normal signal that another VPN took over; this catches builds that skip it.
+        if (DnsVpnService.running && VpnService.prepare(this) != null) DnsVpnService.lostToAnotherVpn()
         updating = true
         toggle.isChecked = DnsVpnService.running
         updating = false
@@ -235,5 +317,27 @@ class MainActivity : Activity() {
         } else {
             "Off \u00b7 $names$scope$bad"
         }
+        val warn = mutableListOf<String>()
+        if (!DnsVpnService.running) DnsVpnService.stopReason?.let { warn.add(it) }
+        if (!DnsVpnService.running && DnsVpnService.stopReason != DnsVpnService.REASON_TAKEN_OVER && otherVpnActive()) {
+            warn.add("Another VPN is on. Android runs one VPN at a time: turning this on will disconnect it.")
+        }
+        privateDnsHost()?.let {
+            warn.add(
+                "Private DNS is set to $it (Settings > Network > Private DNS). Android sends lookups " +
+                    "there instead of to this app, so hosts entries will not apply. Set it to Automatic or Off."
+            )
+        }
+        if (DnsVpnService.running && t.size > 0 && DnsVpnService.local.get() == 0L &&
+            DnsVpnService.forwarded.get() > 200
+        ) {
+            warn.add(
+                "None of your names has been looked up yet. Check that the app you test with is not " +
+                    "excluded, and that it does not use its own secure DNS (a browser's \"Use secure DNS\" " +
+                    "setting bypasses the system resolver). Recent lookups shows what arrives."
+            )
+        }
+        warning.text = warn.joinToString("\n\n")
+        warning.visibility = if (warn.isEmpty()) android.view.View.GONE else android.view.View.VISIBLE
     }
 }

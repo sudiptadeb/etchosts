@@ -44,7 +44,16 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
         const val ACTION_HIDE_NOTIFICATION = "app.etchosts.HIDE_NOTIFICATION"
         private const val CHANNEL = "vpn"
         private const val CHANNEL_QUIET = "vpn_quiet"
+        private const val CHANNEL_ALERT = "stopped"
         private const val NOTIF_ID = 1
+        private const val NOTIF_STOPPED = 2
+        private const val RECENT_MAX = 100
+
+        const val REASON_TAKEN_OVER = "Turned off: another VPN app took over. Android runs only one VPN at a " +
+            "time, so the hosts list cannot apply while that one (for example a mesh or work VPN) is on."
+        const val REASON_REFUSED = "Android refused to start the VPN. If another app is set as Always-on VPN " +
+            "(Settings > Network > VPN), turn that off first."
+        const val REASON_NO_APPS = "Not started: \"Only the chosen apps\" needs at least one installed app."
         private const val MAX_IN_FLIGHT = 16
 
         // Fake resolvers: routed into the tun, never really exist.
@@ -59,6 +68,23 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
         val forwarded = AtomicLong()
         val failed = AtomicLong()
 
+        /** Why it last stopped without the user asking, shown until the next start. */
+        @Volatile var stopReason: String? = null
+
+        private val recent = ArrayDeque<String>()
+
+        /** The latest lookups, newest first: "12:01:02  name  A  local". */
+        fun recentLookups(): List<String> = synchronized(recent) { recent.reversed() }
+
+        private fun record(name: String, type: Int, outcome: String) {
+            val t = String.format(java.util.Locale.ROOT, "%tT", System.currentTimeMillis())
+            val line = "$t  $name  ${Dns.typeName(type)}  $outcome"
+            synchronized(recent) {
+                if (recent.size >= RECENT_MAX) recent.removeFirst()
+                recent.addLast(line)
+            }
+        }
+
         /** Called on the main thread whenever [running] changes. */
         var onStateChange: (() -> Unit)? = null
 
@@ -69,7 +95,13 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
         }
 
         fun stop() {
+            stopReason = null
             instance?.let { it.shutdown(); it.stopSelf() }
+        }
+
+        /** The app saw that the system no longer counts us as the VPN, but onRevoke never came. */
+        fun lostToAnotherVpn() {
+            instance?.let { it.revoked() }
         }
 
         private fun debug(msg: String) {
@@ -91,6 +123,7 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                stopReason = null
                 shutdown()
                 stopSelf()
                 return START_NOT_STICKY
@@ -103,6 +136,7 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
         }
         goForeground()
         if (tun == null && !startTunnel()) {
+            if (stopReason == null) stopReason = REASON_REFUSED
             shutdown()
             stopSelf()
             return START_NOT_STICKY
@@ -111,8 +145,35 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
     }
 
     override fun onRevoke() { // another VPN took over, or the user revoked consent
+        revoked()
+    }
+
+    private fun revoked() {
+        Log.i(TAG, "revoked: another VPN took over or consent was withdrawn")
+        stopReason = REASON_TAKEN_OVER
         shutdown()
+        alertStopped()
         stopSelf()
+    }
+
+    /** A separate, dismissable notification: the user is usually in the other VPN's app, not ours. */
+    private fun alertStopped() {
+        val nm = notifyManager()
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ALERT, "Turned off by another VPN", NotificationManager.IMPORTANCE_DEFAULT)
+        )
+        val open = PendingIntent.getActivity(
+            this, 3, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
+        )
+        val n = Notification.Builder(this, CHANNEL_ALERT)
+            .setSmallIcon(R.drawable.ic_tile)
+            .setContentTitle("DNS override turned off")
+            .setContentText("Another VPN app took over; hosts entries no longer apply.")
+            .setStyle(Notification.BigTextStyle().bigText(REASON_TAKEN_OVER))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build()
+        try { nm.notify(NOTIF_STOPPED, n) } catch (e: SecurityException) { debug("alert not posted: $e") }
     }
 
     override fun onDestroy() {
@@ -123,6 +184,10 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
     private fun startTunnel(): Boolean {
         prefs = Prefs.get(this)
         loadPrefs()
+        stopReason = null
+        notifyManager().cancel(NOTIF_STOPPED)
+        local.set(0); forwarded.set(0); failed.set(0)
+        synchronized(recent) { recent.clear() }
         if (!openTun()) return false
         prefs.registerOnSharedPreferenceChangeListener(this)
         setRunning(true)
@@ -173,6 +238,7 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
             }
             if (added == 0) { // an empty allow-list would mean "every app", the opposite of what was asked
                 Log.w(TAG, "mode 'only' with no installed apps chosen, not starting")
+                stopReason = REASON_NO_APPS
                 return false
             }
             return true
@@ -257,6 +323,7 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
         val hit = hosts.lookup(q.name)
         if (hit != null) {
             local.incrementAndGet()
+            record(q.name, q.type, "local")
             debug("local ${q.name} type ${q.type}")
             write(out, pkt.reply(Dns.fromHosts(pkt.payload, q, hit)))
             return
@@ -265,9 +332,10 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
         try {
             pool?.execute {
                 val resp = try {
-                    up.resolve(pkt.payload).also { forwarded.incrementAndGet() }
+                    up.resolve(pkt.payload).also { forwarded.incrementAndGet(); record(q.name, q.type, "forwarded") }
                 } catch (e: Exception) {
                     failed.incrementAndGet()
+                    record(q.name, q.type, "failed")
                     debug("upstream failed for ${q.name}: $e")
                     Dns.error(pkt.payload, q, Dns.RCODE_SERVFAIL)
                 }
@@ -275,6 +343,7 @@ class DnsVpnService : VpnService(), SharedPreferences.OnSharedPreferenceChangeLi
             }
         } catch (e: RejectedExecutionException) { // too many in flight
             failed.incrementAndGet()
+            record(q.name, q.type, "failed (busy)")
             write(out, pkt.reply(Dns.error(pkt.payload, q, Dns.RCODE_SERVFAIL)))
         }
     }

@@ -43,6 +43,18 @@ first.
 Edits to the hosts list and the upstream apply **live** while it is running.
 The status line shows how many queries were answered locally, forwarded and
 failed, and lists the line numbers of hosts lines it could not parse.
+**Recent lookups** lists the last 100 names that reached it and what happened
+to each (local, forwarded, failed). If your name never shows up there, the app
+you test with is not asking the system resolver: it is excluded by the app
+scope, or it uses its own secure DNS (a browser's "Use secure DNS" setting).
+A Private DNS hostname (Settings > Network > Private DNS) also sends lookups
+around it; the app warns when one is set.
+
+Android runs only one VPN at a time. If another VPN is on (a mesh client, a
+work VPN), turning this on asks first, because it disconnects that VPN. If
+another VPN takes over while this one runs, it turns off, says why on the main
+screen and posts a notification. It cannot run alongside another VPN, and an
+Always-on VPN app set in system settings stops it from starting at all.
 
 Per-app scope ("Apps it applies to"):
 

@@ -1,10 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<!-- The whole screen scrolls, so the keyboard can never squeeze the hosts box to
+     nothing: it keeps a usable minimum height and the page scrolls to the cursor. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
+    android:clipToPadding="false"
+    android:fillViewport="true"
     android:padding="16dp">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
 
     <Switch
         android:id="@+id/toggle"
@@ -20,6 +28,16 @@
         style="@style/Helper"
         android:lineSpacingExtra="2sp"
         android:paddingBottom="4dp" />
+
+    <!-- Why it is off, or why overrides may not apply (another VPN, Private DNS). -->
+    <TextView
+        android:id="@+id/warning"
+        style="@style/Helper"
+        android:layout_marginBottom="4dp"
+        android:background="@drawable/box"
+        android:padding="10dp"
+        android:textColor="?android:attr/textColorPrimary"
+        android:visibility="gone" />
 
     <LinearLayout style="@style/SectionRow">
 
@@ -81,6 +99,11 @@
             android:text="Hosts" />
 
         <Button
+            android:id="@+id/recentBtn"
+            style="@style/FlatButton"
+            android:text="Recent lookups" />
+
+        <Button
             android:id="@+id/importBtn"
             style="@style/FlatButton"
             android:text="Import file" />
@@ -94,8 +117,9 @@
     <EditText
         android:id="@+id/hosts"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
+        android:layout_height="wrap_content"
         android:layout_weight="1"
+        android:minHeight="220dp"
         android:background="@drawable/box"
         android:fontFamily="monospace"
         android:gravity="top|start"
@@ -103,6 +127,6 @@
         android:importantForAutofill="no"
         android:inputType="textMultiLine|textNoSuggestions"
         android:padding="12dp"
-        android:scrollbars="vertical"
         android:textSize="14sp" />
 </LinearLayout>
+</ScrollView>

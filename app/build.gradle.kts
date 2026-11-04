@@ -11,9 +11,9 @@ android {
         applicationId = "app.etchosts"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
+        versionCode = 4
         // CI appends +g<sha7> on main pushes (rolling "latest" channel), nothing on tags.
-        versionName = "0.2.1" + ((project.findProperty("amaritVersionSuffix") as String?) ?: "")
+        versionName = "0.2.2" + ((project.findProperty("amaritVersionSuffix") as String?) ?: "")
     }
 
     // Release builds are signed with the stable key when the ETCHOSTS_* variables
