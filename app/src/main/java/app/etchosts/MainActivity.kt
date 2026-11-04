@@ -114,11 +114,26 @@ class MainActivity : Activity() {
         val devChannel = findViewById<Switch>(R.id.devChannel)
         devChannel.isChecked = updater?.channel == "latest"
         devChannel.setOnCheckedChangeListener { _, on -> updater?.channel = if (on) "latest" else "stable" }
-        findViewById<Button>(R.id.checkUpdate).setOnClickListener {
-            val u = updater ?: return@setOnClickListener
+        val checkBtn = findViewById<Button>(R.id.checkUpdate)
+        val updateStatus = findViewById<TextView>(R.id.updateStatus)
+        checkBtn.setOnClickListener {
+            updateStatus.visibility = android.view.View.VISIBLE
+            val u = updater
+            if (u == null) {
+                updateStatus.text = "The updater did not start on this phone, so updates cannot be checked here. " +
+                    "Download the APK from the project's Releases page instead."
+                return@setOnClickListener
+            }
+            checkBtn.isEnabled = false
+            checkBtn.text = "Checking\u2026"
+            updateStatus.text = "Checking ${if (u.channel == "latest") "the dev channel" else "stable releases"}\u2026"
             u.checkNow(this) { r ->
-                r.onSuccess { if (!it.update) Toast.makeText(this, "Up to date (${it.reason})", Toast.LENGTH_LONG).show() }
-                r.onFailure { Toast.makeText(this, "Update check failed: ${it.message}", Toast.LENGTH_LONG).show() }
+                checkBtn.isEnabled = true
+                checkBtn.text = "Check for updates"
+                updateStatus.text = r.fold(
+                    { d -> updateText(u.installed.versionName, u.channel, d.update, d.version, d.reason) },
+                    { e -> "Update check failed: ${e.message ?: e.javaClass.simpleName}" },
+                )
             }
         }
 
@@ -148,6 +163,22 @@ class MainActivity : Activity() {
         DnsVpnService.onStateChange = null
         ui.removeCallbacks(tick)
         if (dirty) { ui.removeCallbacks(save); save.run() }
+    }
+
+    /** The update check's outcome in words, instead of the library's log reason. */
+    private fun updateText(running: String, channel: String, update: Boolean, version: String?, reason: String): String {
+        val dev = channel == "latest"
+        return when {
+            update -> "Version $version is available (you have $running)."
+            version == null && !dev -> "You have $running. There is no stable release yet; turn on the dev " +
+                "channel above to get every main build."
+            version == null -> "You have $running. Nothing is published on the dev channel yet."
+            reason.startsWith("already on") -> "You have the latest ${if (dev) "dev build" else "release"} ($running)."
+            reason.contains("not downgrading") -> "You have $running, newer than the latest " +
+                "${if (dev) "dev build" else "release"} ($version)."
+            reason.contains("skipped") -> "Version $version was skipped on this phone; a newer one will be offered."
+            else -> "You have $running. $reason"
+        }
     }
 
     /** A drop-down over [labels], preselected at [selected]; [onPick] fires only on a user's pick. */

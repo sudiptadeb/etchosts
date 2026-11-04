@@ -92,6 +92,13 @@
         style="@style/RowSwitch"
         android:text="Offer every main build (dev channel)" />
 
+    <!-- Result of the last update check; stays put, unlike a toast. -->
+    <TextView
+        android:id="@+id/updateStatus"
+        style="@style/Helper"
+        android:paddingBottom="4dp"
+        android:visibility="gone" />
+
     <LinearLayout style="@style/SectionRow">
 
         <TextView
