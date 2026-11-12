@@ -3,7 +3,7 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
-// Set when a key folder is in play but a key is missing; fails release builds only.
+// Set when the signing key is missing; fails release builds only.
 var missingKey: String? = null
 
 android {
@@ -29,7 +29,9 @@ android {
         val keys = if (kosh != null) File(kosh, "etchosts") else rootProject.file(".keys")
         val jks = File(keys, "etchosts-release.jks")
         val env = File(keys, "secrets.env")
-        if (kosh == null && !keys.exists()) return@run null // no keys at all: debug key
+        // Pull requests on GitHub get no secrets, so only those fall back to the debug key.
+        val prRun = System.getenv("GITHUB_ACTIONS") == "true" && System.getenv("GITHUB_EVENT_NAME") == "pull_request"
+        if (prRun && kosh == null && !keys.exists()) return@run null
         listOf(jks, env).firstOrNull { !it.isFile }?.let {
             missingKey = "missing signing key: $it" + if (kosh != null) " (run keykosh unlock)" else ""
             return@run null

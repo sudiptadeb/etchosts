@@ -165,8 +165,9 @@ A local `assembleRelease` reads the stable key from a key folder:
 root (git-ignored). The folder holds `etchosts-release.jks` and `secrets.env`
 with `ETCHOSTS_KEYSTORE_PASSWORD`, `ETCHOSTS_KEY_ALIAS` and
 `ETCHOSTS_KEY_PASSWORD`. A missing file stops the release build with the path
-it looked for. With no key folder at all (no `KEYKOSH_ROOT`, no `.keys/`, as
-on a fork), a release build is signed with the debug key.
+it looked for, and so does having no key folder at all. Only a GitHub Actions
+pull-request run, which gets no secrets, signs its release build with the
+debug key.
 
 Debug logging is off by default. To see per-query lines:
 
