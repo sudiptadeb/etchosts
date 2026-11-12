@@ -6,3 +6,6 @@ local.properties
 .DS_Store
 captures/
 .kotlin/
+
+# Release signing key when there is no keykosh (see README)
+.keys/

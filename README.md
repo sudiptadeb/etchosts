@@ -155,8 +155,18 @@ Release (the tag must match `versionName`, so bump `versionCode` and
 release with the `amarit release` tool, from the root `amarit.json`; that
 file is also copied into the APK's assets at build time. CI builds `assembleRelease`
 signed with a stable key from repository secrets (`ETCHOSTS_KEYSTORE_B64`,
-`ETCHOSTS_KEYSTORE_PASSWORD`, `ETCHOSTS_KEY_ALIAS`, `ETCHOSTS_KEY_PASSWORD`);
-without those variables a release build falls back to the debug key.
+`ETCHOSTS_KEYSTORE_PASSWORD`, `ETCHOSTS_KEY_ALIAS`, `ETCHOSTS_KEY_PASSWORD`).
+
+### Signing key
+
+A local `assembleRelease` reads the stable key from a key folder:
+`$KEYKOSH_ROOT/etchosts` when `KEYKOSH_ROOT` is set
+([keykosh](https://github.com/sudiptadeb/keykosh)), else `.keys/` at the repo
+root (git-ignored). The folder holds `etchosts-release.jks` and `secrets.env`
+with `ETCHOSTS_KEYSTORE_PASSWORD`, `ETCHOSTS_KEY_ALIAS` and
+`ETCHOSTS_KEY_PASSWORD`. A missing file stops the release build with the path
+it looked for. With no key folder at all (no `KEYKOSH_ROOT`, no `.keys/`, as
+on a fork), a release build is signed with the debug key.
 
 Debug logging is off by default. To see per-query lines:
 
